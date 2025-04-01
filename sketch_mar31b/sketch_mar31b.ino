@@ -4,7 +4,9 @@
 #define TXD 2
 #define RXD 3
 #define INPUT_PULSE 4
+#define MOTOR 6
 #define DHTPIN 7
+#define LED 8
 #define DHTTYPE DHT11
 #define OUTPUT_VOLTAGE A0
 
@@ -22,6 +24,8 @@ void setup() {
   dht.begin();
   pinMode(INPUT_PULSE, OUTPUT);
   pinMode(OUTPUT_VOLTAGE, INPUT);
+  pinMode(MOTOR, OUTPUT);
+  pinMode(LED, OUTPUT);
 }
 
 void loop() {
@@ -50,10 +54,30 @@ void loop() {
     return;
   }
 
-  mySerial.print(humidity, 1);
-  mySerial.print("%\t");
-  mySerial.print(temperature, 1);
-  mySerial.print("C\t");
-  mySerial.print(avgDustDensity, 1);
-  mySerial.println("ug/m3");
+  if (mySerial.available()) {
+    char input = (char) mySerial.read();
+
+    switch(input) {
+      case '1':
+        digitalWrite(LED, HIGH);
+        break;
+      case '2':
+        digitalWrite(LED, LOW);
+        break;
+      case '3':
+        digitalWrite(MOTOR, 64);
+        break;
+      case '4':
+        digitalWrite(MOTOR, 128);
+        break;
+      case '5':
+        digitalWrite(MOTOR, 192);
+        break;
+      case '6':
+        digitalWrite(MOTOR, 0);
+        break;
+    }
+  }
+
+  mySerial.println(String(humidity) + "%, " + String(temperature) + "C, " + String(avgDustDensity) + "ug/m3");
 }

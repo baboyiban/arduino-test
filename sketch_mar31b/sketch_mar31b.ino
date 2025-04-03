@@ -19,10 +19,6 @@
 #define GAS_OUT A1        // 가스 센서 아날로그 출력 A1으로 설정
 #define DHTTYPE DHT11     // 온습도 센서 타입 선택
 
-#define GAS_THRESHOLD 250       // 가스 감지 임계값
-#define NORMAL_SERVO_POS 80     // 정상 상태 서보 모터 위치
-#define EMERGENCY_SERVO_POS 170 // 가스 감지 시 서보 모터 위치
-
 U8GLIB_SSD1306_128X64 u8g(U8G_I2C_OPT_NONE); // SSD1306 128X64 I2C 규격 선택
 DHT dht(DHTPIN, DHTTYPE);                    // DHT 센서 초기화
 SoftwareSerial mySerial(TXD, RXD); // 소프트웨어 시리얼 mySerial 객체 선언
@@ -38,18 +34,16 @@ int roomLedCount = 0; // 방 LED 제어 시 발생한 스위칭 횟수를 저장
 byte motorStep = 0;   // 모터 속도 단계를 저장
 float preVoltage = 0; // 0~1023 범위의 출력 전압
 float voltage = 0;    // 0~5 범위의 출력 전압
-float dustDensity = 0;             // 미세먼지 농도 수치
-float sumDustDensity = 0;          // 미세먼지 농도 수치 합
-float avgDustDensity = 0;          // 미세먼지 농도 수치 평균
-bool gasDetected = false;          // 가스 감지 상태 저장 변수
-unsigned long lastSensorCheck = 0; // 마지막 센서 체크 시간
+float dustDensity = 0;    // 미세먼지 농도 수치
+float sumDustDensity = 0; // 미세먼지 농도 수치 합
+float avgDustDensity = 0; // 미세먼지 농도 수치 평균
 
 void setup() {
   dht.begin();                     // 온습도 센서 동기화
   Serial.begin(9600);              // 시리얼 통신 동기화
   mySerial.begin(9600);            // 소프트웨어 시리얼 동기화
   myservo.attach(SERVO);           // 서보 모터 제어를 위한 핀 설정
-  myservo.write(NORMAL_SERVO_POS); // 가스 배관과 일직선 상에 위치
+  myservo.write(80);               // 가스 배관과 일직선 상에 위치
   pinMode(DC_MOTOR, OUTPUT);       // 6번 핀 출력으로 설정
   pinMode(PULSE, OUTPUT);          // 7번 핀 출력으로 설정
   pinMode(PIR, INPUT);             // 8번 핀을 입력으로 설정
@@ -63,143 +57,110 @@ void setup() {
 }
 
 void loop() {
-  unsigned long currentMillis = millis();
+  delay(1000);
+  int pirValue = digitalRead(PIR); // 동작 감지 신호를 value 변수에 저장
+  int magneticValue = digitalRead(
+      MAGNETIC); // 마그네틱 스위치의 출력 신호를 magneticValue 변수에 저장
+  int gasValue = analogRead(GAS_OUT); // 아날로그 데이터를 읽어 value 변수에
+                                      // 저장
+  Serial.print("Pir state :"); // 인체 감지 센서 상태 확인
+  Serial.print(pirValue);
+  Serial.print("\t");
+  Serial.print("magnetic state :"); // 마그네틱 스위치 상태 확인
+  Serial.print(magneticValue);
+  Serial.print("\t");
+  Serial.print("gas value :"); // 가스 센서 데이터 확인
+  Serial.println(gasValue);
 
-  // 1초마다 센서 값 읽기
-  if (currentMillis - lastSensorCheck >= 1000) {
-    lastSensorCheck = currentMillis;
-
-    int pirValue = digitalRead(PIR); // 동작 감지 신호를 value 변수에 저장
-    int magneticValue = digitalRead(
-        MAGNETIC); // 마그네틱 스위치의 출력 신호를 magneticValue 변수에 저장
-    int gasValue =
-        analogRead(GAS_OUT); // 아날로그 데이터를 읽어 value 변수에 저장
-
-    Serial.print("Pir state :"); // 인체 감지 센서 상태 확인
-    Serial.print(pirValue);
-    Serial.print("\t");
-    Serial.print("magnetic state :"); // 마그네틱 스위치 상태 확인
-    Serial.print(magneticValue);
-    Serial.print("\t");
-    Serial.print("gas value :"); // 가스 센서 데이터 확인
-    Serial.println(gasValue);
-
-    // PIR 센서 제어
-    if (pirValue == HIGH) // 동작을 감지했을 경우
+  if (pirValue == HIGH) // 동작을 감지했을 경우
+  {
+    digitalWrite(DOOR_LED, HIGH); // LED 점등
+    delay(5000);                  // 3초 동안 지연
+  } else {
+    digitalWrite(DOOR_LED, LOW); // LED 소등
+  }
+  if (magneticValue == 1 &&
+      pirValue == 0) // 현관문이 열려있고 동작이 감지되지 않았을 때
+  {
+    for (int i = 0; i < 2; i++) // 알림음을 2회 출력
     {
-      digitalWrite(DOOR_LED, HIGH); // LED 점등
-      delay(100);                   // 짧은 딜레이
-    } else {
-      digitalWrite(DOOR_LED, LOW); // LED 소등
-    }
-
-    // 마그네틱 스위치와 PIR 센서 결합 로직
-    if (magneticValue == 1 &&
-        pirValue == 0) // 현관문이 열려있고 동작이 감지되지 않았을 때
-    {
-      for (int i = 0; i < 2; i++) // 알림음을 2회 출력
-      {
-        tone(PIEZO, 6271, 150); // 6271Hz 주파수의 음을 0.15초 출력
-        delay(200);             // 0.2초 대기
-        tone(PIEZO, 4186, 150); // 4186Hz 주파수의 음을 0.15초 출력
-        delay(200);
-      }
-    }
-
-    // 가스 감지 로직 수정
-    if (gasValue >= GAS_THRESHOLD && !gasDetected) // 가스가 처음 감지될 때
-    {
-      gasDetected = true;
-      for (int i = 0; i < 5; i++) // 경고음을 5회 출력
-      {
-        tone(PIEZO, 2093, 250); // 2093Hz 주파수의 음을 0.25초 출력
-        delay(200);             // 0.2초 대기
-        tone(PIEZO, 1567, 250); // 1567Hz 주파수의 음을 0.25초 출력
-        delay(200);
-      }
-      myservo.write(EMERGENCY_SERVO_POS); // 가스 배관과 90도 방향이 되도록 회전
-      delay(200); // 서보 모터가 위치까지 도달할 수 있도록 0.2초 대기
-    } else if (gasValue < GAS_THRESHOLD &&
-               gasDetected) // 가스가 정상으로 돌아왔을 때
-    {
-      gasDetected = false;
-      myservo.write(NORMAL_SERVO_POS); // 가스 배관과 일직선 상태로 복귀
-      delay(200); // 서보 모터가 위치까지 도달할 수 있도록 0.2초 대기
-    }
-
-    // DHT 센서 읽기
-    float humidity = dht.readHumidity(); // 습도 데이터를 읽어와 변수에 저장
-    float temperature =
-        dht.readTemperature(); // 온도 데이터를 읽어와 변수에 저장
-    if (isnan(humidity) || isnan(temperature)) { // 데이터를 읽어오지 못했을
-                                                 // 경우
-      Serial.println("DHT 센서 읽기 실패");
-    } else {
-      // 미세먼지 측정
-      sumDustDensity = 0; // 미세먼지 농도 수치 합을 초기화
-      for (int i = 0; i < 30; i++) // 미세먼지 농도 수치 30회 측정
-      {
-        digitalWrite(PULSE, LOW); // 입력 펄스 인가
-        delayMicroseconds(280);   // 0.28ms 대기
-        preVoltage = analogRead(
-            OUTPUT_VOLTAGE); // A0 핀으로부터 데이터를 읽어 preVoltage에 저장
-        delayMicroseconds(40);     // 0.04ms 대기
-        digitalWrite(PULSE, HIGH); // 입력 펄스 종료
-        delayMicroseconds(9680);   // 9.68ms 대기
-        voltage = preVoltage * 5.0 /
-                  1024.0; // 0~5 범위 전압 값으로 변환 후 voltage에 저장
-
-        // 미세먼지 농도 계산 수정 - 음수 방지
-        if (voltage > 0.3) {
-          dustDensity = (voltage - 0.3) / 0.005; // 미세먼지 농도 수치 계산
-        } else {
-          dustDensity = 0; // 최소값 이하일 경우 0으로 설정
-        }
-
-        sumDustDensity += dustDensity; // 미세먼지 농도 수치 합계
-        delay(10);                     // 데이터 계산 간 10ms 대기
-      }
-      avgDustDensity =
-          sumDustDensity /
-          30.0; // 미세먼지 농도 수치의 평균 값을 avgDustDensity에 저장
-
-      // OLED 디스플레이 업데이트
-      u8g.firstPage(); // picture loop의 시작
-      do {
-        u8g.setFont(u8g_font_fub14); // 온도, 습도 폰트지정
-        u8g.setPrintPos(5, 20);      // 온도 데이터 출력 커서 설정
-        u8g.print(temperature, 1); // 온도 데이터(소수점 첫째 자리) 출력
-        u8g.print("\xb0"
-                  "C");          // 온도 기호(°C) 출력
-        u8g.setPrintPos(70, 20); // 습도 데이터 출력 커서 설정
-        u8g.print(humidity, 1); // 습도 데이터(소수점 첫째 자리) 출력
-        u8g.print("%");         // 습도 기호(%) 출력
-        u8g.setFont(u8g_font_fub20); // 미세먼지 농도 수치 폰트지정
-        u8g.setPrintPos(40, 55); // 미세먼지 농도 수치 출력 커서 설정
-        u8g.print(avgDustDensity,
-                  1); // 미세먼지 농도 수치(소수점 첫째 자리) 출력
-      } while (u8g.nextPage()); // picture loop의 끝
-
-      // 블루투스로 데이터 전송
-      mySerial.print(temperature, 1); // 소수점 첫째 자리까지 온도 데이터 출력
-      mySerial.print(" "); // 각 데이터를 공백으로 구분
-      mySerial.print(humidity, 1); // 소수점 첫째 자리까지 습도 데이터 출력
-      mySerial.print(" "); // 각 데이터를 공백으로 구분
-      mySerial.println(avgDustDensity,
-                       1); // 소수점 첫째 자리까지 미세먼지 데이터 출력
+      tone(PIEZO, 6271, 150); // 6271Hz 주파수의 음을 0.15초 출력
+      delay(200);             // 0.2초 대기
+      tone(PIEZO, 4186, 150); // 4186Hz 주파수의 음을 0.15초 출력
+      delay(200);
     }
   }
+  if (gasValue >= 250) // 가스가 누출되는 상황일 때
+  {
+    for (int i = 0; i < 5; i++) // 경고음을 5회 출력
+    {
+      tone(PIEZO, 2093, 250); // 2093Hz 주파수의 음을 0.25초 출력
+      delay(200);             // 0.2초 대기
+      tone(PIEZO, 1567, 250); // 1567Hz 주파수의 음을 0.25초 출력
+      delay(200);
+    }
+    myservo.write(170); // 가스 배관과 90도 방향이 되도록 회전
+    delay(200);         // 서보 모터가 위치까지 도달할 수 있도록 0.2초 대기
+    myservo.detach();   // 서보 모터 출력 신호 정지
+  }
 
-  // 블루투스 명령 처리
+  float humidity = dht.readHumidity(); // 습도 데이터를 읽어와 변수에 저장
+  float temperature = dht.readTemperature(); // 온도 데이터를 읽어와 변수에 저장
+  if (isnan(humidity) ||
+      isnan(temperature)) { // 데이터를 읽어오지 못했을 경우 아래 메시지 출력
+    return;
+  }
+
+  sumDustDensity = 0;          // 미세먼지 농도 수치 합을 초기화
+  for (int i = 0; i < 30; i++) // 미세먼지 농도 수치 30회 측정
+  {
+    digitalWrite(PULSE, LOW); // 입력 펄스 인가
+    delayMicroseconds(280);   // 0.28ms 대기
+    preVoltage = analogRead(
+        OUTPUT_VOLTAGE); // A0 핀으로부터 데이터를 읽어 preVoltage에 저장
+    delayMicroseconds(40);     // 0.04ms 대기
+    digitalWrite(PULSE, HIGH); // 입력 펄스 종료
+    delayMicroseconds(9680);   // 9.68ms 대기
+    voltage = preVoltage * 5.0 /
+              1024.0; // 0~5 범위 전압 값으로 변환 후 voltage에 저장
+    dustDensity =
+        (voltage - 0.3) / 0.005; // 미세먼지 농도 수치 dustDensity에 저장
+    sumDustDensity += dustDensity; // 미세먼지 농도 수치 합계
+    delay(10);                     // 데이터 계산 간 10ms 대기
+  }
+  avgDustDensity = sumDustDensity /
+                   30.0; // 미세먼지 농도 수치의 평균 값을 avgDustDensity에 저장
+
+  u8g.firstPage(); // picture loop의 시작
+  do {
+    u8g.setFont(u8g_font_fub14); // 온도, 습도 폰트지정
+    u8g.setPrintPos(5, 20);      // 온도 데이터 출력 커서 설정
+    u8g.print(temperature, 1); // 온도 데이터(소수점 첫째 자리) 출력
+    u8g.print("\xb0"
+              "C");          // 온도 기호(°C) 출력
+    u8g.setPrintPos(70, 20); // 습도 데이터 출력 커서 설정
+    u8g.print(humidity, 1);  // 습도 데이터(소수점 첫째 자리) 출력
+    u8g.print("%");          // 습도 기호(%) 출력
+    u8g.setFont(u8g_font_fub20); // 미세먼지 농도 수치 폰트지정
+    u8g.setPrintPos(40, 55); // 미세먼지 농도 수치 출력 커서 설정
+    u8g.print(avgDustDensity, 1); // 미세먼지 농도 수치(소수점 첫째 자리) 출력
+  } while (u8g.nextPage()); // picture loop의 끝
+
+  mySerial.print(temperature, 1); // 소수점 첫째 자리까지 온도 데이터 출력
+  mySerial.print(" ");            // 각 데이터를 공백으로 구분
+  mySerial.print(humidity, 1); // 소수점 첫째 자리까지 습도 데이터 출력
+  mySerial.print(" ");         // 각 데이터를 공백으로 구분
+  mySerial.println(avgDustDensity,
+                   1); // 소수점 첫째 자리까지 미세먼지 데이터 출력
+
   if (mySerial.available()) // 앱에서 데이터가 발생되어 블루투스 모듈로 데이터가
                             // 입력되었을 때
   {
     byte input = mySerial.read(); // 데이터를 읽어 input 변수에 저장
 
-    // DC 모터 제어 (입력값 30~39 처리)
-    if (input >= 30 && input < 40) // DC 모터 제어와 관련된 데이터 발생 시
+    if (input >= 30) // DC 모터 제어와 관련된 데이터 발생 시
     {
-      motorStep = input % 10; // 모터 속도를 나타내는 단계 처리 (0~9)
+      motorStep = input % 10; // 모터 속도를 나타내는 단계 처리
       input = input / 10; // 모터 제어와 관련된 고유 번호 3 처리
     }
 
@@ -237,7 +198,6 @@ void ledControl(int pin, int count) // ledControl() 함수 정의
     digitalWrite(pin, LOW); // LED를 제어하는 핀에 LOW 신호를 발생시켜 LED 소등
   }
 }
-
 void motor_Control(byte dcStep) // motor_Control 함수 정의
 {
   switch (dcStep) // 현재 DC 모터 속도 단계

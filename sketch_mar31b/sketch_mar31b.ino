@@ -2,6 +2,8 @@
 
 Servo myservo;
 
+int pos = 0;
+
 void setup() { myservo.attach(6); }
 
 void loop() {

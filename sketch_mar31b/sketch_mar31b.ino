@@ -1,12 +1,16 @@
-#include <SoftwareSerial.h>
+#include <Servo.h>
 
-#define TXD 2
-#define RXD 3
+Servo myservo;
 
-SoftwareSerial mySerial(TXD, RXD);
+void setup() { myservo.attach(6); }
 
-void setup() {
-  mySerial.begin(9600);
+void loop() {
+  for (pos = 0; pos <= 120; pos += 1) {
+    myservo.write(pos);
+    delay(15);
+  }
+  for (pos = 120; pos >= 0; pos -= 1) {
+    myservo.write(pos);
+    delay(15);
+  }
 }
-
-void loop() {}
